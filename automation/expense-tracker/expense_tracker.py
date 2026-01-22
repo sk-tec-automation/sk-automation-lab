@@ -10,23 +10,9 @@ EXPENSE_FILE = os.path.join(BASE_DIR, "expenses.csv")
 INCOME_FILE = os.path.join(BASE_DIR, "income.csv")
 SAVINGS_FILE = os.path.join(BASE_DIR, "savings.csv")
 ARCHIVE_DIR = os.path.join(BASE_DIR, "archive")
+BUDGET_FILE = os.path.join(BASE_DIR, "budget.csv")
 
 EXPENSE_FIELDS = ["date", "amount", "category", "event"]
-
-# ================== BUDGETS ==================
-
-BUDGETS = {
-    "food": 3000,
-    "snack": 500,
-    "entertainment": 500,
-    "bike_rent": 1000,
-    "travel": 1000,
-    "electronics": 1000,
-    "household": 500,
-    "rent": 8500,
-    "loan": 10000,
-    "mom": 4000
-}
 
 # ================== FILE INIT ==================
 
@@ -133,6 +119,7 @@ def handle_month_change():
 
 def add_expense():
     ensure_income_for_current_month()
+    budgets = load_budgets()
 
     try:
         amount = float(input("Amount: "))
@@ -141,13 +128,25 @@ def add_expense():
         return
 
     category = input("Category: ").strip().lower()
+    if not category:
+        print("❌ Category cannot be empty")
+        return
     event = input("Event (optional): ").strip().lower()
 
-    if category not in BUDGETS:
-        print(f"⚠️ No budget set for '{category}'")
-        if input("Save anyway? (y/n): ").strip().lower() != "y":
-            print("❌ Cancelled")
-            return
+    if category not in budgets:
+        print(f"⚠️ No budget found for category '{category}'")
+        choice = input("Do you want to set a budget now? (y/n): ").strip().lower()
+        if choice == "y":
+            try:
+                budget_amt = float(input("Enter budget amount: "))
+                save_or_update_budget(category, budget_amt)
+                print("✅ Budget saved")
+            except ValueError:
+                print("❌ Invalid budget amount")
+        else:
+            if input("Save expense without budget? (y/n): ").strip().lower() != "y":
+                print("❌ Cancelled")
+                return
     else:
         if input("Confirm expense? (y/n): ").strip().lower() != "y":
             print("❌ Cancelled")
@@ -163,11 +162,13 @@ def add_expense():
 def monthly_summary():
     summary = {}
     events = {}
+    budgets = load_budgets()   # ✅ load ONCE
 
     with open(EXPENSE_FILE, "r") as f:
         for r in csv.DictReader(f):
             amt = float(r["amount"])
-            summary[r["category"]] = summary.get(r["category"], 0) + amt
+            cat = r["category"]
+            summary[cat] = summary.get(cat, 0) + amt
 
             evt = r["event"].strip()
             if evt:
@@ -180,8 +181,9 @@ def monthly_summary():
     print("-" * 60)
 
     for cat, spent in summary.items():
-        budget = BUDGETS.get(cat)
-        if budget:
+        budget = budgets.get(cat)   # ✅ get budget for THIS category
+
+        if budget is not None:
             left = budget - spent
             status = "🚨 OVER" if left < 0 else "⚠️ Near" if spent / budget >= 0.8 else "✅ OK"
             print(f"{cat:12}: ₹{spent:8.2f} / ₹{budget:<7} | Left ₹{left:8.2f} {status}")
@@ -190,6 +192,7 @@ def monthly_summary():
 
     print("-" * 60)
     print(f"TOTAL SPENT  : ₹{total:.2f}")
+
     if income is not None:
         print(f"INCOME       : ₹{income:.2f}")
         print(f"BALANCE LEFT : ₹{income - total:.2f}")
@@ -199,17 +202,79 @@ def monthly_summary():
         for e, a in events.items():
             print(f"{e:15}: ₹{a:.2f}")
 
+# ================== Budget ==================
+
+def init_budget_file():
+    if not os.path.exists(BUDGET_FILE):
+        with open(BUDGET_FILE, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["category", "budget"])
+
+def load_budgets():
+    budgets = {}
+
+    if not os.path.exists(BUDGET_FILE):
+        return budgets
+
+    with open(BUDGET_FILE, "r") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                category = row["category"].strip().lower()
+                budget = float(row["budget"])
+                budgets[category] = budget
+            except Exception:
+                continue
+
+    return budgets
+
+# ================== Update Budget ==================
+
+def save_or_update_budget(category, budget_amount):
+    category = category.strip().lower()
+    budgets = load_budgets()
+
+    # Update or add
+    budgets[category] = float(budget_amount)
+
+    # Write back entire file (safe overwrite)
+    with open(BUDGET_FILE, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["category", "budget"])
+        for cat, amt in budgets.items():
+            writer.writerow([cat, amt])
+
+# ================= SET BUDGET ==================
+
+def set_budget_menu():
+    category = input("Enter category name: ").strip().lower()
+    if not category:
+        print("❌ Category cannot be empty")
+        return
+
+
+    try:
+        amount = float(input("Enter budget amount: "))
+    except ValueError:
+        print("❌ Invalid budget amount")
+        return
+
+    save_or_update_budget(category, amount)
+    print(f"✅ Budget set for '{category}' : ₹{amount}")
+
 # ================== MAIN ==================
 
 def main():
     init_files()
+    init_budget_file()
     handle_month_change()
 
     while True:
         print("\n=== Expense Tracker ===")
         print("1. Add Expense")
         print("2. Monthly Summary")
-        print("3. Exit")
+        print("3. Set / Update Budget")
+        print("4. Exit")
 
         choice = input("Choose: ").strip()
 
@@ -218,6 +283,8 @@ def main():
         elif choice == "2":
             monthly_summary()
         elif choice == "3":
+            set_budget_menu()
+        elif choice == "4":
             print("👋 Goodbye")
             break
         else:
