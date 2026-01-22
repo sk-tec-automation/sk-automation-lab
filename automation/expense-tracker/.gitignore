@@ -1,3 +1,6 @@
-expenses.csv
-expenses.txt
-__pycache__/
+# Ignore data files
+*.csv
+archive/
+
+# Ignore experiments
+try.py
